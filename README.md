@@ -1,2 +1,19 @@
-# kelimeler-bot
-Telegram bot sor Learing Turkish words
+# Kelimeler Bot 
+
+Telegram-bot для изученияя слов. Позволяет доюавлять слова, проходить и следить за статистикой.
+
+## ✨ Возможности
+
+- ➕ Добавление слов ('/add')
+- 📝 Просмотр словаря ('/list')
+- 🗑️ Удаление слов ('/delete')
+- 🎯 Викторина с проверкой ('/quiz')
+- 📊 Статистика правильных ответов ('/stats')
+- 🔄 Сьрос статистики ('/reset')
+
+## 🚀 Как запустить 
+ 
+ 1. Установи Python 3.14
+ 2. Склонируй репозиторий:
+    '''bash
+    git clone https://qithub.com/nuris4/kelimeler-bot.qit

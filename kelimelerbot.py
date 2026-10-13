@@ -4,14 +4,12 @@ import time
 import os
 import random
 
-TOKEN = "ВСТАВЬ_СЮДА_СВОЙ_ТОКЕН"
+TOKEN = "ВСТАВЬ_СВОЙ_ТОКЕН"
 URL = "https://api.telegram.org/bot" + TOKEN + "/"
 
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "words.json")
 STATS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stats.json")
 
-
-# quiz_state: {chat_id: {"turkish": "...", "russian": "...", "correct": 0, "wrong": 0}}
 quiz_state = {}
 
 
@@ -73,56 +71,118 @@ def send_message(chat_id, text):
     urllib.request.urlopen(req)
 
 
+def send_quiz(chat_id, turkish, options):
+    keyboard = []
+    for option in options:
+        button = {"text": option, "callback_data": option}
+        keyboard.append([button])
+    reply_markup = {"inline_keyboard": keyboard}
+    data = json.dumps(
+        {
+            "chat_id": chat_id,
+            "text": "Переведи: " + turkish,
+            "reply_markup": reply_markup
+        },
+        ensure_ascii=False
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        URL + "sendMessage",
+        data=data,
+        headers={"Content-Type": "application/json; charset=utf-8"}
+    )
+    urllib.request.urlopen(req)
+
+
+def answer_callback(callback_id, text):
+    data = json.dumps(
+        {"callback_query_id": callback_id, "text": text}
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        URL + "answerCallbackQuery",
+        data=data,
+        headers={"Content-Type": "application/json"}
+    )
+    urllib.request.urlopen(req)
+
+
+def make_options(words, correct):
+    options = [correct]
+    all_values = list(words.values())
+    random.shuffle(all_values)
+    for value in all_values:
+        if value not in options:
+            options.append(value)
+        if len(options) >= 4:
+            break
+    random.shuffle(options)
+    return options
+
+
+def next_question(chat_id, words, correct_count, wrong_count):
+    turkish, russian = random.choice(list(words.items()))
+    options = make_options(words, russian)
+    quiz_state[chat_id] = {
+        "turkish": turkish,
+        "russian": russian,
+        "correct": correct_count,
+        "wrong": wrong_count
+    }
+    send_quiz(chat_id, turkish, options)
+
+
+def handle_callback(callback, words, stats):
+    chat_id = callback["message"]["chat"]["id"]
+    callback_id = callback["id"]
+    chosen = callback["data"]
+    print("Нажата кнопка:", chosen)
+
+    if chat_id not in quiz_state:
+        answer_callback(callback_id, "Тест неактивен")
+        return
+
+    current = quiz_state[chat_id]
+    key = str(chat_id)
+
+    if key not in stats or not isinstance(stats[key], dict):
+        stats[key] = {"correct": 0, "wrong": 0}
+
+    if chosen == current["russian"]:
+        current["correct"] += 1
+        stats[key]["correct"] += 1
+        answer_callback(callback_id, "Верно!")
+    else:
+        current["wrong"] += 1
+        stats[key]["wrong"] += 1
+        answer_callback(callback_id, "Неверно. Правильно: " + current["russian"])
+
+    save_stats(stats)
+
+    total = current["correct"] + current["wrong"]
+    if total > 0:
+        percent = int(current["correct"] / total * 100)
+    else:
+        percent = 0
+    send_message(chat_id, "Счёт: " + str(current["correct"]) + "/" + str(total) + " (" + str(percent) + "%)")
+
+    if words:
+        next_question(chat_id, words, current["correct"], current["wrong"])
+    else:
+        del quiz_state[chat_id]
+        send_message(chat_id, "Словарь пуст.")
+
+
 def handle_message(chat_id, text, words, stats):
     text = text.strip()
     key = str(chat_id)
 
-    # Проверка: пользователь проходит тест?
     if chat_id in quiz_state:
         if text.lower() == "/stop":
             del quiz_state[chat_id]
             send_message(chat_id, "Тест завершён.")
             return
-
-        current = quiz_state[chat_id]
-
-        if text.lower() == current["russian"]:
-            current["correct"] += 1
-            if key not in stats or not isinstance(stats[key], dict):
-                stats[key] = {"correct": 0, "wrong": 0}
-            stats[key]["correct"] += 1
-            send_message(chat_id, "✅ Верно!")
-        else:
-            current["wrong"] += 1
-            if key not in stats or not isinstance(stats[key], dict):
-                stats[key] = {"correct": 0, "wrong": 0}
-            stats[key]["wrong"] += 1
-            send_message(chat_id, "❌ Неверно. Правильно: " + current["russian"])
-
-        save_stats(stats)
-
-        total = current["correct"] + current["wrong"]
-        percent = int(current["correct"] / total * 100) if total > 0 else 0
-        send_message(chat_id,
-            "Счёт: " + str(current["correct"]) + "/" + str(total) +
-            " (" + str(percent) + "%)"
-        )
-
-        if words:
-            turkish, russian = random.choice(list(words.items()))
-            quiz_state[chat_id] = {
-                "turkish": turkish,
-                "russian": russian,
-                "correct": current["correct"],
-                "wrong": current["wrong"]
-            }
-            send_message(chat_id, "Переведи: " + turkish)
-        else:
-            del quiz_state[chat_id]
-            send_message(chat_id, "Словарь пуст.")
+        send_message(chat_id, "Нажимай кнопки или напиши /stop для выхода.")
         return
 
-    # Обычные команды
     if text == "/start":
         send_message(chat_id,
             "Привет! Я бот Kelimeler — тренажёр турецких слов.\n\n"
@@ -145,15 +205,17 @@ def handle_message(chat_id, text, words, stats):
         russian = parts[2].lower()
         words[turkish] = russian
         save_words(words)
-        send_message(chat_id, "Добавлено: " + turkish + " → " + russian)
+        send_message(chat_id, "Добавлено: " + turkish + " -> " + russian)
 
     elif text == "/list":
         if not words:
             send_message(chat_id, "Словарь пуст. Добавь слова через /add")
             return
         lines = []
-        for i, (tr, ru) in enumerate(words.items(), 1):
-            lines.append(str(i) + ". " + tr + " — " + ru)
+        i = 1
+        for turkish in words:
+            lines.append(str(i) + ". " + turkish + " — " + words[turkish])
+            i += 1
         send_message(chat_id, "Слова (" + str(len(words)) + "):\n" + "\n".join(lines))
 
     elif text.startswith("/delete"):
@@ -173,21 +235,18 @@ def handle_message(chat_id, text, words, stats):
         if not words:
             send_message(chat_id, "Словарь пуст. Сначала добавь слова через /add")
             return
-        turkish, russian = random.choice(list(words.items()))
-        quiz_state[chat_id] = {
-            "turkish": turkish,
-            "russian": russian,
-            "correct": 0,
-            "wrong": 0
-        }
-        send_message(chat_id, "Тест начался! Напиши /stop для выхода.\n\nПереведи: " + turkish)
+        send_message(chat_id, "Тест начался! Напиши /stop для выхода.")
+        next_question(chat_id, words, 0, 0)
 
     elif text == "/stats":
         user_stats = stats.get(key, {"correct": 0, "wrong": 0})
         if not isinstance(user_stats, dict):
             user_stats = {"correct": 0, "wrong": 0}
         total = user_stats["correct"] + user_stats["wrong"]
-        percent = int(user_stats["correct"] / total * 100) if total > 0 else 0
+        if total > 0:
+            percent = int(user_stats["correct"] / total * 100)
+        else:
+            percent = 0
         send_message(chat_id,
             "Общая статистика:\n"
             "Правильных: " + str(user_stats["correct"]) + "\n"
@@ -210,21 +269,27 @@ def main():
     words = load_words()
     stats = load_stats()
     last_id = 0
+
     while True:
         try:
             updates = get_updates(last_id)
             for update in updates.get("result", []):
                 last_id = update["update_id"] + 1
-                msg = update.get("message")
-                if not msg:
+
+                if "callback_query" in update:
+                    handle_callback(update["callback_query"], words, stats)
                     continue
-                chat_id = msg["chat"]["id"]
-                text = msg.get("text", "")
-                print("Получено:", text)
-                handle_message(chat_id, text, words, stats)
+
+                if "message" in update:
+                    msg = update["message"]
+                    chat_id = msg["chat"]["id"]
+                    text = msg.get("text", "")
+                    print("Получено:", text)
+                    handle_message(chat_id, text, words, stats)
         except Exception as e:
             print("Ошибка:", e)
         time.sleep(1)
+
 
 if __name__ == "__main__":
     main()

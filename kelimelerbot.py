@@ -4,7 +4,7 @@ import time
 import os
 import random
 
-TOKEN = "ВСТАВЬ_СВОЙ_ТОКЕН"
+TOKEN = os.environ.get("BOT_TOKEN", "ВСТАВЬ_СВОЙ_ТОКЕН")
 URL = "https://api.telegram.org/bot" + TOKEN + "/"
 
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "words.json")

@@ -1,3 +1,5 @@
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 import urllib.request
 import json
 import time
@@ -289,5 +291,17 @@ def main():
             print("Ошибка:", e)
         time.sleep(1)
 
+class SimleHTTRPequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+
+def run_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), SimleHTTRPequestHandler)
+    server.serve_forever()
+
 if __name__ == "__main__":
+    threading.Thread(target=run_server, daemon=True).start()
     main()
